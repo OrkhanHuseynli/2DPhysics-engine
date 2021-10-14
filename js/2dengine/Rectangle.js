@@ -1,0 +1,270 @@
+import {RigidShape} from "./RigidShape";
+import {Vec2} from "./Vec2";
+import {CollisionInfo} from "./CollisionInfo";
+
+let Rectangle = function (center, width, height, fix, gEngine) {
+  RigidShape.call(this, center, gEngine);
+  this.mType = "Rectangle";
+  this.mWidth = width;
+  this.mHeight = height;
+  this.mVertex = [];
+  this.mFaceNormal = [];
+  this.mBoundRadius = Math.sqrt(width*width + height*height)/2;
+  this.tmpSupport = {};
+  //0--TopLeft;1--TopRight;2--BottomRight;3--BottomLeft
+  this.mVertex[0] = new Vec2(center.x - width / 2, center.y - height / 2);
+  this.mVertex[1] = new Vec2(center.x + width / 2, center.y - height / 2);
+  this.mVertex[2] = new Vec2(center.x + width / 2, center.y + height / 2);
+  this.mVertex[3] = new Vec2(center.x - width / 2, center.y + height / 2);
+  //0--Top;1--Right;2--Bottom;3--Left
+//mFaceNormal is normal of face toward outside of rectangle
+  this.mFaceNormal[0] = this.mVertex[1].subtract(this.mVertex[2]);
+  this.mFaceNormal[0] = this.mFaceNormal[0].normalize();
+  this.mFaceNormal[1] = this.mVertex[2].subtract(this.mVertex[3]);
+  this.mFaceNormal[1] = this.mFaceNormal[1].normalize();
+  this.mFaceNormal[2] = this.mVertex[3].subtract(this.mVertex[0]);
+  this.mFaceNormal[2] = this.mFaceNormal[2].normalize();
+  this.mFaceNormal[3] = this.mVertex[0].subtract(this.mVertex[1]);
+  this.mFaceNormal[3] = this.mFaceNormal[3].normalize();
+}
+let prototype = Object.create(RigidShape.prototype);
+prototype.constructor = Rectangle;
+Rectangle.prototype = prototype;
+
+
+Rectangle.prototype.move = function (v) {
+  let i;
+  for (i = 0; i < this.mVertex.length; i++) {
+    this.mVertex[i] = this.mVertex[i].add(v);
+  }
+  this.mCenter = this.mCenter.add(v);
+  return this;
+};
+
+Rectangle.prototype.rotate = function (angle) {
+  this.mAngle += angle;
+  let i;
+  for (i = 0; i < this.mVertex.length; i++) {
+    this.mVertex[i] = this.mVertex[i].rotate(this.mCenter, angle);
+  }
+  this.mFaceNormal[0] = this.mVertex[1].subtract(this.mVertex[2]);
+  this.mFaceNormal[0] = this.mFaceNormal[0].normalize();
+  this.mFaceNormal[1] = this.mVertex[2].subtract(this.mVertex[3]);
+  this.mFaceNormal[1] = this.mFaceNormal[1].normalize();
+  this.mFaceNormal[2] = this.mVertex[3].subtract(this.mVertex[0]);
+  this.mFaceNormal[2] = this.mFaceNormal[2].normalize();
+  this.mFaceNormal[3] = this.mVertex[0].subtract(this.mVertex[1]);
+  this.mFaceNormal[3] = this.mFaceNormal[3].normalize();
+  return this;
+};
+
+Rectangle.prototype.collisionTest = function (otherShape, collisionInfo) {
+  let status = false;
+  if (otherShape.mType === "Circle") {
+    status = this.collidedRectCirc(otherShape, collisionInfo);
+  } else {
+    status = this.collidedRectRect(this, otherShape, collisionInfo);
+  }
+  return status;
+};
+
+let SupportStruct = function () {
+  this.mSupportPoint = null;
+  this.mSupportPointDist = 0;
+};
+let tmpSupport = new SupportStruct();
+
+Rectangle.prototype.findSupportPoint = function (dir, ptOnEdge) {
+  //the longest project length
+  let vToEdge;
+  let projection;
+  // initialize the computed results
+  tmpSupport  = {mSupportPointDist: -9999999, mSupportPoint: null}
+  //check each vector of other object
+  for (let i = 0; i < this.mVertex.length; i++) {
+    vToEdge = this.mVertex[i].subtract(ptOnEdge);
+    projection = vToEdge.dot(dir);
+    //find the longest distance with certain edge
+    //dir is -n direction, so the distance should be positive
+    if ((projection > 0) && (projection > tmpSupport.mSupportPointDist)) {
+      tmpSupport.mSupportPoint = this.mVertex[i];
+      tmpSupport.mSupportPointDist = projection;
+    }
+  }
+
+  // this.tmpSupport = tmpSupport;
+
+};
+
+/**
+ * Find the shortest axis that overlapping
+ * @memberOf Rectangle
+ * @param {Rectangle} otherRect  another rectangle that being tested
+ * @param {CollisionInfo} collisionInfo  record the collision information
+ * @returns {Boolean} true if has overlap part in all four directions.
+ * the code is convert from http://gamedevelopment.tutsplus.com/tutorials/how-to-create-a-custom-2d-physics-engine-oriented-rigid-bodies--gamedev-8032
+ */
+Rectangle.prototype.findAxisLeastPenetration = function (otherRect, collisionInfo) {
+  let n;
+  let supportPoint;
+
+  let bestDistance = 999999;
+  let bestIndex = null;
+
+  let hasSupport = true;
+  let i = 0;
+  while ((hasSupport) && (i < this.mFaceNormal.length)) {
+    // Retrieve a face normal from A
+    n = this.mFaceNormal[i];
+    // use -n as direction and // the vectex on edge i as point on edge
+    let dir = n.scale(-1);
+    let ptOnEdge = this.mVertex[i];
+    // find the support on B
+    // the point has longest distance with edge i
+    otherRect.findSupportPoint(dir, ptOnEdge);
+    hasSupport = (tmpSupport.mSupportPoint !== null);
+    //get the shortest support point depth
+    if ((hasSupport) && (tmpSupport.mSupportPointDist < bestDistance)) {
+      bestDistance = tmpSupport.mSupportPointDist;
+      bestIndex = i;
+      supportPoint = tmpSupport.mSupportPoint;
+    }
+    i = i + 1;
+  }
+  console.log(bestIndex)
+  if (hasSupport && bestIndex) {
+    //all four directions have support point
+    let bestVec = this.mFaceNormal[bestIndex].scale(bestDistance);
+    collisionInfo.setInfo(bestDistance, this.mFaceNormal[bestIndex], supportPoint.add(bestVec));
+  }
+  return hasSupport;
+};
+
+/**
+ * Check for collision between RigidRectangle and RigidRectangle
+ * @param {Rectangle} r1 Rectangle object to check for collision status
+ * @param {Rectangle} r2 Rectangle object to check for collision status against
+ * @param {CollisionInfo} collisionInfo Collision info of collision
+ * @returns {Boolean} true if collision occurs
+ * @memberOf Rectangle
+ */
+let collisionInfoR1 = new CollisionInfo();
+let collisionInfoR2 = new CollisionInfo();
+Rectangle.prototype.collidedRectRect = function (r1, r2, collisionInfo) {
+  let status1 = false;
+  let status2 = false;
+  status1 = r1.findAxisLeastPenetration(r2, collisionInfoR1);
+  if (status1) {
+    status2 = r2.findAxisLeastPenetration(r1, collisionInfoR2);
+    if (status2) {
+      //choose the shorter normal as the normal
+      if (collisionInfoR1.getDepth() < collisionInfoR2.getDepth()) {
+        let depthVec = collisionInfoR1.getNormal().scale(collisionInfoR1.getDepth());
+        collisionInfo.setInfo(collisionInfoR1.getDepth(),
+          collisionInfoR1.getNormal(), collisionInfoR1.mStart.subtract(depthVec));
+      } else {
+        collisionInfo.setInfo(collisionInfoR2.getDepth(),
+          collisionInfoR2.getNormal().scale(-1), collisionInfoR2.mStart);
+      }
+    }
+  }
+  return status1 && status2;
+};
+
+/**
+ * Check for collision between Rectangle and Circle
+ * @param {Circle} otherCir circle to check for collision status against
+ * @param {CollisionInfo} collisionInfo Collision info of collision
+ * @returns {Boolean} true if collision occurs
+ * @memberOf Rectangle
+ */
+Rectangle.prototype.collidedRectCirc = function (otherCir, collisionInfo) {
+
+  let inside = true;
+  let bestDistance = -99999;
+  let nearestEdge = 0;
+  let i, v;
+  let circ2Pos, projection;
+  for (i = 0; i < 4; i++) {
+    //find the nearest face for center of circle
+    circ2Pos = otherCir.mCenter;
+    v = circ2Pos.subtract(this.mVertex[i]);
+    projection = v.dot(this.mFaceNormal[i]);
+    if (projection > 0) {
+      //if the center of circle is outside of rectangle
+      bestDistance = projection;
+      nearestEdge = i;
+      inside = false;
+      break;
+    }
+    if (projection > bestDistance) {
+      bestDistance = projection;
+      nearestEdge = i;
+    }
+  }
+  let dis, normal, radiusVec;
+  if (!inside) {
+    //the center of circle is outside of rectangle
+
+    //v1 is from left vertex of face to center of circle
+    //v2 is from left vertex of face to right vertex of face
+    let v1 = circ2Pos.subtract(this.mVertex[nearestEdge]);
+    let v2 = this.mVertex[(nearestEdge + 1) % 4].subtract(this.mVertex[nearestEdge]);
+
+    let dot = v1.dot(v2);
+
+    if (dot < 0) {
+      //the center of circle is in corner region of mVertex[nearestEdge]
+      dis = v1.length();
+      //compare the distance with radium to decide collision
+      if (dis > otherCir.mRadius) {
+        return false;
+      }
+
+      normal = v1.normalize();
+      radiusVec = normal.scale(-otherCir.mRadius);
+      collisionInfo.setInfo(otherCir.mRadius - dis, normal, circ2Pos.add(radiusVec));
+    } else {
+      //the center of circle is in corner region of mVertex[nearestEdge+1]
+
+      //v1 is from right vertex of face to center of circle
+      //v2 is from right vertex of face to left vertex of face
+      v1 = circ2Pos.subtract(this.mVertex[(nearestEdge + 1) % 4]);
+      v2 = v2.scale(-1);
+      dot = v1.dot(v2);
+      if (dot < 0) {
+        dis = v1.length();
+        //compare the distance with radium to decide collision
+        if (dis > otherCir.mRadius) {
+          return false;
+        }
+        normal = v1.normalize();
+        radiusVec = normal.scale(-otherCir.mRadius);
+        collisionInfo.setInfo(otherCir.mRadius - dis, normal, circ2Pos.add(radiusVec));
+      } else {
+        //the center of circle is in face region of face[nearestEdge]
+        if (bestDistance < otherCir.mRadius) {
+          radiusVec = this.mFaceNormal[nearestEdge].scale(otherCir.mRadius);
+          collisionInfo.setInfo(otherCir.mRadius - bestDistance, this.mFaceNormal[nearestEdge], circ2Pos.subtract(radiusVec));
+        } else {
+          return false;
+        }
+      }
+    }
+  } else {
+    //the center of circle is inside of rectangle
+    radiusVec = this.mFaceNormal[nearestEdge].scale(otherCir.mRadius);
+    collisionInfo.setInfo(otherCir.mRadius - bestDistance, this.mFaceNormal[nearestEdge], circ2Pos.subtract(radiusVec));
+  }
+  return true;
+};
+
+Rectangle.prototype.draw = function (context) {
+  context.save();
+  context.translate(this.mVertex[0].x, this.mVertex[0].y);
+  context.rotate(this.mAngle);
+  context.strokeRect(0, 0, this.mWidth, this.mHeight);
+  context.restore();
+};
+
+export {Rectangle}
