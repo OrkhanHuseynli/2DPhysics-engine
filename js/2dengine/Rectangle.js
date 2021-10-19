@@ -2,22 +2,23 @@ import {RigidShape} from "./RigidShape";
 import {Vec2} from "./Vec2";
 import {CollisionInfo} from "./CollisionInfo";
 
-let Rectangle = function (center, width, height, fix, gEngine) {
-  RigidShape.call(this, center, gEngine);
+let Rectangle = function (center, width,  height, mass, friction, restitution, gEngine) {
+  RigidShape.call(this, center,  mass, friction, restitution, gEngine);
   this.mType = "Rectangle";
   this.mWidth = width;
   this.mHeight = height;
+  this.mBoundRadius = Math.sqrt(width*width + height*height)/2;
   this.mVertex = [];
   this.mFaceNormal = [];
-  this.mBoundRadius = Math.sqrt(width*width + height*height)/2;
-  this.tmpSupport = {};
+
   //0--TopLeft;1--TopRight;2--BottomRight;3--BottomLeft
   this.mVertex[0] = new Vec2(center.x - width / 2, center.y - height / 2);
   this.mVertex[1] = new Vec2(center.x + width / 2, center.y - height / 2);
   this.mVertex[2] = new Vec2(center.x + width / 2, center.y + height / 2);
   this.mVertex[3] = new Vec2(center.x - width / 2, center.y + height / 2);
+
   //0--Top;1--Right;2--Bottom;3--Left
-//mFaceNormal is normal of face toward outside of rectangle
+  //mFaceNormal is normal of face toward outside of rectangle
   this.mFaceNormal[0] = this.mVertex[1].subtract(this.mVertex[2]);
   this.mFaceNormal[0] = this.mFaceNormal[0].normalize();
   this.mFaceNormal[1] = this.mVertex[2].subtract(this.mVertex[3]);
@@ -26,20 +27,15 @@ let Rectangle = function (center, width, height, fix, gEngine) {
   this.mFaceNormal[2] = this.mFaceNormal[2].normalize();
   this.mFaceNormal[3] = this.mVertex[0].subtract(this.mVertex[1]);
   this.mFaceNormal[3] = this.mFaceNormal[3].normalize();
+
+  this.updateInertia();
 }
+
 let prototype = Object.create(RigidShape.prototype);
 prototype.constructor = Rectangle;
 Rectangle.prototype = prototype;
 
 
-Rectangle.prototype.move = function (v) {
-  let i;
-  for (i = 0; i < this.mVertex.length; i++) {
-    this.mVertex[i] = this.mVertex[i].add(v);
-  }
-  this.mCenter = this.mCenter.add(v);
-  return this;
-};
 
 Rectangle.prototype.rotate = function (angle) {
   this.mAngle += angle;
@@ -57,6 +53,40 @@ Rectangle.prototype.rotate = function (angle) {
   this.mFaceNormal[3] = this.mFaceNormal[3].normalize();
   return this;
 };
+
+Rectangle.prototype.move = function (v) {
+  let i;
+  for (i = 0; i < this.mVertex.length; i++) {
+    this.mVertex[i] = this.mVertex[i].add(v);
+  }
+  this.mCenter = this.mCenter.add(v);
+  return this;
+};
+
+
+Rectangle.prototype.draw = function (context) {
+  context.save();
+  context.translate(this.mVertex[0].x, this.mVertex[0].y);
+  context.rotate(this.mAngle);
+  context.strokeRect(0, 0, this.mWidth, this.mHeight);
+  context.restore();
+};
+
+
+Rectangle.prototype.updateInertia = function() {
+  // Expect this.mInvMass to be already inverted!
+  if (this.mInvMass === 0)
+    this.mInertia = 0                                                                                  ;
+  else {
+    //inertia=mass*width^2+height^2
+    this.mInertia = (1 / this.mInvMass) * (this.mWidth * this.mWidth + this.mHeight * this.mHeight) / 12;
+    this.mInertia = 1 / this.mInertia;
+  }
+};
+
+
+
+// ************** COLLISION **************
 
 Rectangle.prototype.collisionTest = function (otherShape, collisionInfo) {
   let status = false;
@@ -84,6 +114,7 @@ Rectangle.prototype.findSupportPoint = function (dir, ptOnEdge) {
   for (let i = 0; i < this.mVertex.length; i++) {
     vToEdge = this.mVertex[i].subtract(ptOnEdge);
     projection = vToEdge.dot(dir);
+
     //find the longest distance with certain edge
     //dir is -n direction, so the distance should be positive
     if ((projection > 0) && (projection > tmpSupport.mSupportPointDist)) {
@@ -113,9 +144,11 @@ Rectangle.prototype.findAxisLeastPenetration = function (otherRect, collisionInf
 
   let hasSupport = true;
   let i = 0;
+
   while ((hasSupport) && (i < this.mFaceNormal.length)) {
     // Retrieve a face normal from A
     n = this.mFaceNormal[i];
+
     // use -n as direction and // the vectex on edge i as point on edge
     let dir = n.scale(-1);
     let ptOnEdge = this.mVertex[i];
@@ -123,6 +156,7 @@ Rectangle.prototype.findAxisLeastPenetration = function (otherRect, collisionInf
     // the point has longest distance with edge i
     otherRect.findSupportPoint(dir, ptOnEdge);
     hasSupport = (tmpSupport.mSupportPoint !== null);
+
     //get the shortest support point depth
     if ((hasSupport) && (tmpSupport.mSupportPointDist < bestDistance)) {
       bestDistance = tmpSupport.mSupportPointDist;
@@ -131,7 +165,7 @@ Rectangle.prototype.findAxisLeastPenetration = function (otherRect, collisionInf
     }
     i = i + 1;
   }
-  console.log(bestIndex)
+
   if (hasSupport && bestIndex) {
     //all four directions have support point
     let bestVec = this.mFaceNormal[bestIndex].scale(bestDistance);
@@ -151,20 +185,22 @@ Rectangle.prototype.findAxisLeastPenetration = function (otherRect, collisionInf
 let collisionInfoR1 = new CollisionInfo();
 let collisionInfoR2 = new CollisionInfo();
 Rectangle.prototype.collidedRectRect = function (r1, r2, collisionInfo) {
+
   let status1 = false;
   let status2 = false;
+
+  //find Axis of Separation for both rectangle
   status1 = r1.findAxisLeastPenetration(r2, collisionInfoR1);
+
   if (status1) {
     status2 = r2.findAxisLeastPenetration(r1, collisionInfoR2);
     if (status2) {
-      //choose the shorter normal as the normal
+      //if both of rectangles are overlapping, choose the shorter normal as the normal
       if (collisionInfoR1.getDepth() < collisionInfoR2.getDepth()) {
         let depthVec = collisionInfoR1.getNormal().scale(collisionInfoR1.getDepth());
-        collisionInfo.setInfo(collisionInfoR1.getDepth(),
-          collisionInfoR1.getNormal(), collisionInfoR1.mStart.subtract(depthVec));
+        collisionInfo.setInfo(collisionInfoR1.getDepth(), collisionInfoR1.getNormal(), collisionInfoR1.mStart.subtract(depthVec));
       } else {
-        collisionInfo.setInfo(collisionInfoR2.getDepth(),
-          collisionInfoR2.getNormal().scale(-1), collisionInfoR2.mStart);
+        collisionInfo.setInfo(collisionInfoR2.getDepth(), collisionInfoR2.getNormal().scale(-1), collisionInfoR2.mStart);
       }
     }
   }
@@ -259,12 +295,5 @@ Rectangle.prototype.collidedRectCirc = function (otherCir, collisionInfo) {
   return true;
 };
 
-Rectangle.prototype.draw = function (context) {
-  context.save();
-  context.translate(this.mVertex[0].x, this.mVertex[0].y);
-  context.rotate(this.mAngle);
-  context.strokeRect(0, 0, this.mWidth, this.mHeight);
-  context.restore();
-};
 
 export {Rectangle}
