@@ -1,6 +1,7 @@
 import {Rectangle} from "./Rectangle";
 import {Circle} from "./Circle";
 import {Vec2} from "./Vec2";
+import {gEngine} from "./Core";
 
 function UserControl(gEngine){
   this.width = gEngine.Core.mWidth;
@@ -104,11 +105,11 @@ function InitUserControl(userInputs, gEngine){
 
     if (keycode === "f") {    // f
       let r1 = new Rectangle(new Vec2(gEngine.Core.mAllObjects[userInputs.gObjectNum].mCenter.x, gEngine.Core.mAllObjects[userInputs.gObjectNum].mCenter.y),
-        Math.random() * 30 + 10, Math.random() * 30 + 10, 0, gEngine);
+        Math.random() * 30 + 10, Math.random() * 30 + 10, 1,1,1, gEngine);
     }
     if (keycode === "g") { //g
-      let r1 = new Circle(new Vec2(gEngine.Core.mAllObjects[userInputs.gObjectNum].mCenter.x, gEngine.Core.mAllObjects[userInputs.gObjectNum].mCenter.y),
-        Math.random() * 10 + 20, 0, gEngine);
+      let c1 = new Circle(new Vec2(gEngine.Core.mAllObjects[userInputs.gObjectNum].mCenter.x, gEngine.Core.mAllObjects[userInputs.gObjectNum].mCenter.y),
+        Math.random() * 10 + 20, 1,1, 1, gEngine);
     }
 
     // Toggle gravity with the H key
